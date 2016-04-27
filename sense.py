@@ -4,14 +4,8 @@ from keras.engine.topology import Layer
 from keras.engine import InputSpec
 from keras import initializations, activations
 import theano
-
-def cos_sim(vector1, vector2):
-    return K.dot(vector1,vector2)
-import theano.tensor as T
-
-theano.config.optimizer = 'None'
-theano.config.exception_verbosity ='high'
-theano.optimizer='fast_compile'
+def cos_sim(vector1):
+    return lambda vector2: K.dot(vector1,K.l2_normalize(vector2))
 
 class SenseEmbedding(Layer):
     
@@ -29,30 +23,46 @@ class SenseEmbedding(Layer):
         self.vector_dim = vector_dim
         self.vocab_dim = vocab_dim
         self.num_senses = num_senses
+        inx = T.ivector()
+        iny = T.ivector()
+        self.Context_means = theano.shared(np.zeros((self.vocab_dim, self.num_senses, self.vector_dim)))
+        self.Count_words_per_sense = theano.shared(np.zeros(self.vocab_dim, self.num_senses))
+        indx = T.scalar()
+        self.increment = theano.function()
+
         kwargs['input_dtype'] = 'int32'
         if self.input_dim:
             kwargs['input_shape'] = (self.input_dim, ) 
         super(SenseEmbedding, self).__init__(**kwargs)
 
     def build(self, input_shape):
-        self.W_g = self.init((self.vocab_dim, self.vector_dim))
-        self.W_s = self.init((self.vocab_dim, self.num_senses, self.vector_dim))
-        self.trainable_weights = [self.W_g, self.W_s]
-
+        self.Global_word_vectors = self.init((self.vocab_dim, self.vector_dim))
+        self.Sense_word_vectors = self.init((self.vocab_dim, self.num_senses, self.vector_dim))
+        self.trainable_weights = [self.Global_word_vectors, self.Sense_word_vectors]
+# TODO: SHOULD USE COSINE SIMILARITY INSTEAD OF JUST DOT PRODUCT
     def call(self, x, mask = None):
-        W_g = self.W_g
-        W_s = self.W_s
+        W_g = self.Global_word_vectors
+        W_s = self.Sense_word_vectors
+        C_m = self.Context_means
+        C_w = self.Count_words_per_sense
         nb = x.shape[0]
 
-        # sum up the global vectors for all the context words, sum_context = nb x self.vector_dim
-        sum_context = K.sum(W_g[x[:,2:]] , axis = 1)
+        # sum up the global vectors for all the context words, avg_context = nb x self.vector_dim
+        avg_context = K.sum(W_g[x[:,2:]] , axis = 1)
         # sequence_vectors is a num_senses x nb x self.vector_dim
-        sequence_vectors = W_s[x[:,0]].dimshuffle(1,0,2)
+        sequence_vectors = C_m[x[:,0]].dimshuffle(1,0,2)
         # scores is a matrix of size num_senses x nb
-        scores, ignore = theano.scan(lambda w: K.batch_dot(w, sum_context, axes = 1), sequences = [sequence_vectors], outputs_info = None)
-
+        scores, ignore = theano.scan(lambda w: K.batch_dot(w, avg_context, axes = 1), sequences = [sequence_vectors], outputs_info = None)
+        scores = scores.dimshuffle(0,1)
         # right_senses is a vector of size nb
         right_senses = K.argmax(scores, axis = 0)
+        # update cluster centers
+        subset = C_m[x[:,0],right_senses]
+         subset = subset*C_w[x[:,0],right_senses] + avg_context[:]
+        # update count of senses
+        C_w[x[:,0],right_senses] += 1
+        # normalize cluster centers
+        C_m[x[:,0],right_senses] = C_m[x[:,0],right_senses]/C_w[x[:,0],right_senses]
         # context_sense_vectors is a matrix of size nb x self.vector_dim
         correct_sense_vectors = W_s[x[:,0], right_senses]
         context_global_vectors = W_g[x[:,1]]
