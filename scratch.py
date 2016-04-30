@@ -1,6 +1,7 @@
 from sense import SenseEmbedding;
 from wordvec import WordEmbedding;
 from l2c import L2CEmbedding;
+from l2c_fast import L2CFastEmbedding;
 from keras.models import Sequential;
 from keras.utils.np_utils import to_categorical
 import cPickle
@@ -17,7 +18,7 @@ import random
 from keras.utils import np_utils, generic_utils
 import numpy as np
 
-from sample_skipgrams import skipgrams_wordvec, skipgrams_sense, skipgrams_l2c
+from sample_skipgrams import skipgrams_wordvec, skipgrams_sense, skipgrams_l2c, skipgrams_l2c_fast
 
 
 
@@ -56,67 +57,67 @@ def text_generator(path=data_path):
 ################################################
 # EVALUATION OF THE LEARNT EMBEDDINGS          #
 ################################################
-test_data_path = "test-data/ratings.txt"
-f = open(test_data_path, 'r')
-words = []
-context = []
-average_scores = []
-for line in f:
-    ele = line.split("\t")
-    words.append((ele[1].lower(), ele[3].lower()))
-    context.append((ele[5], ele[6]))
-    average_scores.append(float(ele[7]))
+# test_data_path = "test-data/ratings.txt"
+# f = open(test_data_path, 'r')
+# words = []
+# context = []
+# average_scores = []
+# for line in f:
+#     ele = line.split("\t")
+#     words.append((ele[1].lower(), ele[3].lower()))
+#     context.append((ele[5], ele[6]))
+#     average_scores.append(float(ele[7]))
 
-print(len(words))
-f.close()
+# print(len(words))
+# f.close()
 
-average_scores = np.array(average_scores)
+# average_scores = np.array(average_scores)
 
-def evaluate(model, tokenizer):
-    global_vectors, sense_vectors = model.get_weights()
+# def evaluate(model, tokenizer):
+#     global_vectors, sense_vectors = model.get_weights()
 
-    global_vectors = np_utils.normalize(global_vectors)
-    sense_vectors  = np_utils.normalize(sense_vectors)
-    word_index = tokenizer.word_index
-    reverse_word_index = dict([(v, k) for k, v in list(word_index.items())])
-    def global_word_vector(w):
-        i = word_index.get(w)
-        if (not i):
-            return None
-        return global_vectors[i]
+#     global_vectors = np_utils.normalize(global_vectors)
+#     sense_vectors  = np_utils.normalize(sense_vectors)
+#     word_index = tokenizer.word_index
+#     reverse_word_index = dict([(v, k) for k, v in list(word_index.items())])
+#     def global_word_vector(w):
+#         i = word_index.get(w)
+#         if (not i):
+#             return None
+#         return global_vectors[i]
 
-    def sense_word_vector(i, sense):
-        assert(sense < 3)
-        return sense_vectors[i][sense]
+#     def sense_word_vector(i, sense):
+#         assert(sense < 3)
+#         return sense_vectors[i][sense]
 
-    def global_similarity(f_word, s_word):    
-        v1 = global_word_vector(f_word)
-        v2 = global_word_vector(s_word)
-        if (not v1 or not v2): return -1
-        else:
-           return 1.0- spatial.distance.cosine(v1, v2)
+#     def global_similarity(f_word, s_word):    
+#         v1 = global_word_vector(f_word)
+#         v2 = global_word_vector(s_word)
+#         if (not v1 or not v2): return -1
+#         else:
+#            return 1.0- spatial.distance.cosine(v1, v2)
 
-    def average_similarity(f_word, s_word):
-        id_f = word_index.get(f_word)
-        id_s = word_index.get(s_word)
-        if (id_f is None or id_s is None):
-            return -1
+#     def average_similarity(f_word, s_word):
+#         id_f = word_index.get(f_word)
+#         id_s = word_index.get(s_word)
+#         if (id_f is None or id_s is None):
+#             return -1
 
 
-        else:
-            score = 0.0
-            for sense_f in xrange(3):
-                for sense_s in xrange(3):
-                    v1 = sense_word_vector(id_f, sense_f)
-                    v2 = sense_word_vector(id_s, sense_s)
-                    score += (1.0 - spatial.distance.cosine(v1, v2))
+#         else:
+#             score = 0.0
+#             for sense_f in xrange(3):
+#                 for sense_s in xrange(3):
+#                     v1 = sense_word_vector(id_f, sense_f)
+#                     v2 = sense_word_vector(id_s, sense_s)
+#                     score += (1.0 - spatial.distance.cosine(v1, v2))
 
-            return score/9.0
+#             return score/9.0
 
-    global_sim = 0.0
-    avgSimC = 0.0
+#     global_sim = 0.0
+#     avgSimC = 0.0
 
-    for 
+#     for 
 
 
 
@@ -127,7 +128,7 @@ if __name__ == "__main__":
     context_size = 4
     num_senses = 3
     nb_epoch = 10
-    model.add(L2CEmbedding(input_dim = 2*context_size + 2, vocab_dim = vocab_size+1, vector_dim = dim, num_senses = 3))
+    model.add(L2CFastEmbedding(input_dim = 2*context_size + 2, vocab_dim = vocab_size+1, vector_dim = dim, num_senses = 3))
     optimizerObj = Adagrad(lr = 0.025)
     model.compile(loss="binary_crossentropy", optimizer= optimizerObj)
     fit = 0
@@ -164,7 +165,7 @@ if __name__ == "__main__":
         batch_loss = []
         for i, seq in enumerate(tokenizer.texts_to_sequences_generator(text_generator())):
             # get skipgram couples for one text in the dataset
-            couples, labels = skipgrams_l2c(seq, vocab_size, num_senses =num_senses, window_size=4, negative_samples=1., sampling_table=sampling_table)
+            couples, labels = skipgrams_l2c_fast(seq, vocab_size, num_senses =num_senses, window_size=4, negative_samples=1., sampling_table=sampling_table)
             if couples:
                 # one gradient update per sentence (one sentence = a few 1000s of word couples)
                 X = np.array(couples, dtype="int32")
